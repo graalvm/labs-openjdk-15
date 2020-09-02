@@ -62,7 +62,6 @@ import jdk.vm.ci.runtime.JVMCICompiler;
 import jdk.vm.ci.runtime.JVMCICompilerFactory;
 import jdk.vm.ci.runtime.JVMCIRuntime;
 import jdk.vm.ci.services.JVMCIServiceLocator;
-import jdk.vm.ci.services.Services;
 
 /**
  * HotSpot implementation of a JVMCI runtime.
@@ -899,8 +898,8 @@ public final class HotSpotJVMCIRuntime implements JVMCIRuntime {
     }
 
     /**
-     * Enlarge the number of per thread counters available. Requires a safepoint so
-     * resizing should be rare to avoid performance effects.
+     * Enlarge the number of per thread counters available. Requires a safepoint so resizing should
+     * be rare to avoid performance effects.
      *
      * @param newSize
      */
@@ -1132,12 +1131,12 @@ public final class HotSpotJVMCIRuntime implements JVMCIRuntime {
     }
 
     /**
-     * Informs HotSpot that no method whose module is in {@code modules} is to be compiled
-     * with {@link #compileMethod}.
+     * Informs HotSpot that no method whose module is in {@code modules} is to be compiled with
+     * {@link #compileMethod}.
      *
      * @param modules the set of modules containing JVMCI compiler classes
      */
-    public void excludeFromJVMCICompilation(Module...modules) {
+    public void excludeFromJVMCICompilation(Module... modules) {
         this.excludeFromJVMCICompilation = modules.clone();
     }
 

@@ -60,7 +60,7 @@ public final class JFR {
         private static final ConcurrentHashMap<String, Integer> phaseToId = new ConcurrentHashMap<>();
 
         private static int getPhaseToId(String phaseName) {
-            String[] phaseNames = { phaseName };
+            String[] phaseNames = {phaseName};
             return phaseToId.computeIfAbsent(phaseName, k -> compilerToVM().registerCompilerPhases(phaseNames));
         }
 
