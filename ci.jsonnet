@@ -394,8 +394,9 @@ local os(conf) = conf.environment.CI_OS;
     local graal_confs = [
         self.LinuxDevkitAMD64 + self.AMD64,
         self.Darwin + self.AMD64,
-        # GR-25927, GR-25125
-        #self.LinuxDevkitAARCH64 + self.AArch64,
+
+        # Cannot use devkit (GR-26071)
+        self.LinuxDocker + self.AArch64,
     ],
 
     local amd64_musl_confs = [
@@ -405,7 +406,7 @@ local os(conf) = conf.environment.CI_OS;
     builds: [ self.Build(conf, "false") for conf in build_confs ] +
             [ self.CompilerTests(conf) for conf in graal_confs ] +
 
-            # GR-25125
+            # GR-25354
             #[ self.JavaScriptTests(conf) for conf in graal_confs ] +
 
             [ self.BuildLibGraal(conf) for conf in graal_confs ] +
@@ -413,11 +414,6 @@ local os(conf) = conf.environment.CI_OS;
 
             # GR-25928
             # [ self.Build(conf, "true") for conf in amd64_musl_confs ] +
-
-            # GR-25927 and GR-25125 prevent testing on AArch64
-            # but we want to "require" the JDK artifact so that it
-            # is uploaded.
-            [ self.RunJDK(self.Linux + self.AArch64) ] +
 
             # GR-20001 prevents reliable Graal testing on Windows
             # but we want to "require" the JDK artifact so that it
