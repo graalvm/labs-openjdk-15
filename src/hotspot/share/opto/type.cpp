@@ -3006,7 +3006,7 @@ TypeOopPtr::TypeOopPtr(TYPES t, PTR ptr, ciKlass* k, bool xk, ciObject* o, int o
       } else if (_offset == OffsetBot || _offset == OffsetTop) {
         // unsafe access
         _is_ptr_to_narrowoop = UseCompressedOops;
-      } else { // exclude unsafe ops
+      } else {
         assert(this->isa_instptr(), "must be an instance ptr.");
 
         if (klass() == ciEnv::current()->Class_klass() &&
@@ -3018,12 +3018,18 @@ TypeOopPtr::TypeOopPtr(TYPES t, PTR ptr, ciKlass* k, bool xk, ciObject* o, int o
         } else if (klass() == ciEnv::current()->Class_klass() &&
                    _offset >= InstanceMirrorKlass::offset_of_static_fields()) {
           // Static fields
-          assert(o != NULL, "must be constant");
-          ciInstanceKlass* k = o->as_instance()->java_lang_Class_klass()->as_instance_klass();
-          ciField* field = k->get_field_by_offset(_offset, true);
-          assert(field != NULL, "missing field");
-          BasicType basic_elem_type = field->layout_type();
-          _is_ptr_to_narrowoop = UseCompressedOops && is_reference_type(basic_elem_type);
+          ciField* field = NULL;
+          if (const_oop() != NULL) {
+            ciInstanceKlass* k = const_oop()->as_instance()->java_lang_Class_klass()->as_instance_klass();
+            field = k->get_field_by_offset(_offset, true);
+          }
+          if (field != NULL) {
+            BasicType basic_elem_type = field->layout_type();
+            _is_ptr_to_narrowoop = UseCompressedOops && is_reference_type(basic_elem_type);
+          } else {
+            // unsafe access
+            _is_ptr_to_narrowoop = UseCompressedOops;
+          }
         } else {
           // Instance fields which contains a compressed oop references.
           field = ik->get_field_by_offset(_offset, false);
