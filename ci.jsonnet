@@ -3,11 +3,10 @@ local defs = import "defs.jsonnet";
 # https://github.com/graalvm/labs-openjdk-15/blob/master/doc/testing.md
 local run_test_spec = "test/hotspot/jtreg/compiler/jvmci";
 
-local labsjdk_builder_version = "72ae0e146c1cec612240c215c7330bf2f0b9f079";
-local os(conf) = conf.environment.CI_OS;
+local labsjdk_builder_version = "eb99e407b1f5c5698f3074a2bd528371646ce890";
 
 {
-    overlay: "383e6254aa1759e4b0e3575b82d27009fd1d8d0a",
+    overlay: "509baaf0d06e0fd662ba236954bacf62c6676360",
     specVersion: "2",
 
     OSBase:: {
@@ -38,10 +37,8 @@ local os(conf) = conf.environment.CI_OS;
         },
         capabilities+: ["windows"],
         name+: "-windows-cygwin",
+        os:: "windows",
         environment+: {
-            CI_OS: "windows",
-            JIB_OS: "windows",
-            JIB_PLATFORM_OS: "windows",
             JIB_PATH: "$CYGWIN\\bin;$PATH",
             ZLIB_BUNDLING: "bundled"
         },
@@ -49,15 +46,16 @@ local os(conf) = conf.environment.CI_OS;
     Linux:: self.OSBase + {
         capabilities+: ["linux"],
         name+: "-linux",
-        environment+: {
-            CI_OS: "linux",
-            JIB_OS: "linux",
-            JIB_PLATFORM_OS: "linux",
+        os:: "linux",
+    },
+    LinuxDockerAArch64:: self.Linux {
+        docker: {
+            image: defs.linux_docker_image_aarch64
         },
     },
-    LinuxDocker:: self.Linux {
+    LinuxDockerAMD64Musl:: self.Linux {
         docker: {
-          "image": defs.linux_docker_image
+            image: defs.linux_docker_image_amd64_musl
         },
     },
     LinuxDevkitAMD64:: self.Linux {
@@ -72,11 +70,6 @@ local os(conf) = conf.environment.CI_OS;
             "devkit:gcc9.2.0-OL7.6+1" : "==0"
         },
     },
-    LinuxMuslDocker:: self.Linux {
-        "docker": {
-            "image": "phx.ocir.io/oraclelabs2/c_graal/jdk-musl-snapshot-builder"
-        },
-    },
     Darwin:: self.OSBase + {
         jdk_home(java_home):: java_home + "/../..",
         java_home(jdk_home):: jdk_home + "/Contents/Home",
@@ -84,10 +77,8 @@ local os(conf) = conf.environment.CI_OS;
             # No need to specify a "make" package as Mac OS X has make 3.81
             # available once Xcode has been installed.
         },
+        os:: "darwin",
         environment+: {
-            CI_OS: "darwin",
-            JIB_OS: "macosx",
-            JIB_PLATFORM_OS: "osx",
             ac_cv_func_basename_r: "no",
             ac_cv_func_clock_getres: "no",
             ac_cv_func_clock_gettime: "no",
@@ -105,26 +96,15 @@ local os(conf) = conf.environment.CI_OS;
     AMD64:: {
         capabilities+: ["amd64"],
         name+: "-amd64",
-        environment+: {
-            CI_ARCH: "amd64",
-            JIB_ARCH: "x64"
-        }
     },
 
     AMD64Musl:: self.AMD64 + {
         name+: "-musl",
-        environment+: {
-            CI_ARCH+: "-musl",
-        }
     },
 
     AArch64:: {
         capabilities+: ["aarch64"],
         name+: "-aarch64",
-        environment+: {
-            CI_ARCH: "aarch64",
-            JIB_ARCH: "aarch64"
-        }
     },
 
     Eclipse:: {
@@ -187,11 +167,11 @@ local os(conf) = conf.environment.CI_OS;
             # To reduce load, the CI system does not fetch all tags so it must
             # be done explicitly as `build_labsjdk.py` relies on it.
             ["git", "fetch", "--tags"],
-        ] + (if os(conf) == "windows" then [
+        ] + (if conf.os == "windows" then [
             # Need to fix line endings on Windows to satisfy cygwin
             # https://stackoverflow.com/a/26408129
             ["set-export", "JDK_SRC_DIR", "${PWD}\\..\\jdk"],
-            ["git", "clone", "-c", "core.autocrlf=input", "-c", "gc.auto=0", ".", "${JDK_SRC_DIR}"],
+            ["git", "clone", "--quiet", "-c", "core.autocrlf=input", "-c", "gc.auto=0", ".", "${JDK_SRC_DIR}"],
         ] else [
             ["set-export", "JDK_SRC_DIR", "${PWD}"],
         ]) + [
@@ -199,8 +179,8 @@ local os(conf) = conf.environment.CI_OS;
         ],
     },
 
-    Build(conf, is_musl_build):: conf + setupJDKSources(conf) + self.BootJDK + {
-        packages+: if is_musl_build == "false" then {
+    Build(conf, is_musl_build):: conf + setupJDKSources(conf) + (if is_musl_build then self.MuslBootJDK else self.BootJDK) + {
+        packages+: if !is_musl_build then {
             # GR-19828
             "00:pip:logilab-common ": "==1.4.4",
             "01:pip:astroid" : "==1.1.0",
@@ -212,14 +192,28 @@ local os(conf) = conf.environment.CI_OS;
         logs: ["*.log"],
         targets: ["gate"],
 
-        run+: [
+        local build_labsjdk(jdk_debug_level, java_home_env_var) = [
+            ["set-export", java_home_env_var, conf.path("${PWD}/../%s-java-home" % jdk_debug_level)],
+            ["python3", "-u", conf.path("${LABSJDK_BUILDER_DIR}/build_labsjdk.py"),
+                "--boot-jdk=${BOOT_JDK}",
+                "--clean-after-build",
+                "--ci-target=tmp",
+                "--jdk-debug-level=" + jdk_debug_level,
+                "--test=" + run_test_spec,
+                "--java-home-link-target=${%s}" % java_home_env_var,
+                "${JDK_SRC_DIR}"
+            ],
+            [conf.exe("${%s}/bin/java" % java_home_env_var), "-version"]
+        ],
+
+        run+: (if !is_musl_build then [
             # Run some basic mx based sanity checks. This is mostly to ensure
             # IDE support does not regress.
             ["set-export", "JAVA_HOME", "${BOOT_JDK}"],
             ["mx", "-p", "${JDK_SUITE_DIR}", "checkstyle"],
             ["mx", "-p", "${JDK_SUITE_DIR}", "eclipseinit"],
             ["mx", "-p", "${JDK_SUITE_DIR}", "canonicalizeprojects"],
-
+        ] else []) + [
             ["set-export", "LABSJDK_BUILDER_DIR", conf.path("${PWD}/../labsjdk-builder")],
             ["git", "clone", "-c", "core.autocrlf=input", "-c", "gc.auto=0", defs.labsjdk_builder_url, "${LABSJDK_BUILDER_DIR}"],
             ["git", "-C", "${LABSJDK_BUILDER_DIR}", "checkout", labsjdk_builder_version],
@@ -231,33 +225,10 @@ local os(conf) = conf.environment.CI_OS;
             ["set-export", "JIB_DATA_DIR", conf.path("${PWD}/../jib")],
             ["set-export", "JIB_SERVER", defs.jib_server],
             ["set-export", "JIB_SERVER_MIRRORS", defs.jib_server_mirrors],
-
-            # Make release build
-            ["set-export", "JAVA_HOME", conf.path("${PWD}/../release-java-home")],
-            ["python3", "-u", conf.path("${LABSJDK_BUILDER_DIR}/build_labsjdk.py"),
-                "--boot-jdk=${BOOT_JDK}",
-                "--clean-after-build",
-                "--ci-target=tmp",
-                "--jdk-debug-level=release",
-                "--test=" + run_test_spec,
-                "--java-home-link-target=${JAVA_HOME}",
-                "${JDK_SRC_DIR}"
-            ],
-            [conf.exe("${JAVA_HOME}/bin/java"), "-version"],
-
-            # Make fastdebug build
-            ["set-export", "JAVA_HOME_FASTDEBUG", conf.path("${PWD}/../fastdebug-java-home")],
-            ["python3", "-u", conf.path("${LABSJDK_BUILDER_DIR}/build_labsjdk.py"),
-                "--boot-jdk=${BOOT_JDK}",
-                "--clean-after-build",
-                "--ci-target=tmp",
-                "--jdk-debug-level=fastdebug",
-                "--test=" + run_test_spec,
-                "--java-home-link-target=${JAVA_HOME_FASTDEBUG}",
-                "${JDK_SRC_DIR}"
-            ],
-            [conf.exe("${JAVA_HOME_FASTDEBUG}/bin/java"), "-version"],
-
+        ] +
+        build_labsjdk("release", "JAVA_HOME") +
+        build_labsjdk("fastdebug", "JAVA_HOME_FASTDEBUG") +
+        [
             ["set-export", "PATH", "${OLD_PATH}"],
 
             # Prepare for publishing
@@ -266,17 +237,23 @@ local os(conf) = conf.environment.CI_OS;
             conf.copydir(conf.jdk_home("."), "${JDK_HOME}")
         ],
 
-        publishArtifacts+: if is_musl_build == "false" then [
+        publishArtifacts+: if !is_musl_build then [
             {
                 name: "labsjdk" + conf.name,
                 dir: ".",
                 patterns: ["jdk_home"]
             }
-        ] else [],
+        ] else [
+            # In contrast to the labsjdk-builder repo, the gate in this repo
+            # does not bundle the musl static library into the main JDK. That is
+            # why the musl static library builder does not publish anything.
+            # The musl-based builder in this repo exists solely to ensure
+            # the musl build does not regress.
+        ],
     },
 
     # Downstream Graal branch to test against.
-    local downstream_branch = "ds/GR-24732", # adapt to signature change in JDK-8233234
+    local downstream_branch = "master",
 
     local clone_graal = {
         run+: [
@@ -324,7 +301,7 @@ local os(conf) = conf.environment.CI_OS;
             ["set-export", "GRAALVM_HOME", jsvm + ["graalvm-home"]],
             ["${GRAALVM_HOME}/bin/js", "test/nashorn/opt/add.js"],
         ] +
-        if os(conf) != "windows" then [
+        if conf.os != "windows" then [
             # Native launchers do not yet support --jvm mode on Windows
             ["${GRAALVM_HOME}/bin/js", "--jvm", "test/nashorn/opt/add.js"]
             ] else []
@@ -386,9 +363,9 @@ local os(conf) = conf.environment.CI_OS;
 
     local build_confs = [
         self.LinuxDevkitAMD64 + self.AMD64,
-        self.Darwin + self.AMD64,
-        self.Windows + self.AMD64,
         self.LinuxDevkitAARCH64 + self.AArch64,
+        self.Darwin + self.AMD64,
+        self.Windows + self.AMD64
     ],
 
     local graal_confs = [
@@ -396,14 +373,14 @@ local os(conf) = conf.environment.CI_OS;
         self.Darwin + self.AMD64,
 
         # Cannot use devkit (GR-26071)
-        self.LinuxDocker + self.AArch64,
+        self.LinuxDockerAArch64 + self.AArch64,
     ],
 
     local amd64_musl_confs = [
-        self.LinuxMuslDocker + self.AMD64Musl + self.MuslBootJDK,
+        self.LinuxDockerAMD64Musl + self.AMD64Musl,
     ],
 
-    builds: [ self.Build(conf, "false") for conf in build_confs ] +
+    builds: [ self.Build(conf, is_musl_build=false) for conf in build_confs ] +
             [ self.CompilerTests(conf) for conf in graal_confs ] +
 
             # GR-25354
@@ -413,7 +390,7 @@ local os(conf) = conf.environment.CI_OS;
             [ self.TestLibGraal(conf) for conf in graal_confs ] +
 
             # GR-25928
-            # [ self.Build(conf, "true") for conf in amd64_musl_confs ] +
+            # [ self.Build(conf, is_musl_build=true) for conf in amd64_musl_confs ] +
 
             # GR-20001 prevents reliable Graal testing on Windows
             # but we want to "require" the JDK artifact so that it
