@@ -143,13 +143,10 @@ local labsjdk_builder_version = "eb99e407b1f5c5698f3074a2bd528371646ce890";
     MuslBootJDK:: {
         downloads+: {
             BOOT_JDK: {
-                name: "labsjdk",
-                version: "ce-11.0.7+10-jvmci-20.1-b03-musl-boot",
+                name: "openjdk",
+                version: "15.0.1-internal+0-musl",
                 platformspecific: true
             }
-        },
-        environment+: {
-            LD_LIBRARY_PATH: "$BOOT_JDK/lib/server"
         }
     },
 
@@ -389,8 +386,7 @@ local labsjdk_builder_version = "eb99e407b1f5c5698f3074a2bd528371646ce890";
             [ self.BuildLibGraal(conf) for conf in graal_confs ] +
             [ self.TestLibGraal(conf) for conf in graal_confs ] +
 
-            # GR-25928
-            # [ self.Build(conf, is_musl_build=true) for conf in amd64_musl_confs ] +
+            [ self.Build(conf, is_musl_build=true) for conf in amd64_musl_confs ] +
 
             # GR-20001 prevents reliable Graal testing on Windows
             # but we want to "require" the JDK artifact so that it
