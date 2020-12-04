@@ -714,6 +714,11 @@ public final class HotSpotJVMCIRuntime implements JVMCIRuntime {
         public CompilationRequestResult compileMethod(CompilationRequest request) {
             throw t;
         }
+
+        @Override
+        public boolean isGCSupported(int gcIdentifier) {
+            return false;
+        }
     }
 
     @Override
@@ -814,6 +819,12 @@ public final class HotSpotJVMCIRuntime implements JVMCIRuntime {
             }
         }
         return hsResult;
+    }
+
+    @SuppressWarnings("try")
+    @VMEntryPoint
+    private boolean isGCSupported(int gcIdentifier) {
+        return getCompiler().isGCSupported(gcIdentifier);
     }
 
     /**
