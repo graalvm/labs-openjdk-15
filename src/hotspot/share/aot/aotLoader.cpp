@@ -26,6 +26,7 @@
 #include "aot/aotLoader.inline.hpp"
 #include "classfile/javaClasses.hpp"
 #include "jvm.h"
+#include "jvmci/jvmci.hpp"
 #include "memory/allocation.inline.hpp"
 #include "memory/resourceArea.hpp"
 #include "oops/compressedOops.hpp"
